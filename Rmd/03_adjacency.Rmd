@@ -1,5 +1,5 @@
 ---
-title: "redist_map"
+title: "Adjacency"
 author: "redist_workshop"
 date: "3/25/2022"
 output: html_document
@@ -13,155 +13,127 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Libraries
 
-For these exercises, we only need a few packages. We'll use `redist` again to unlock the `redist_map()`, `geomander` for data, and `sf` for some shape-focused tools.
+For these exercises, we only need a few packages. We'll use `redist` for a high-level adjacency function and data, `geomander` for some adjacency inspecting tools, and `sf` for lower-level shape tools.
 ```{r}
-library(here)
+# library(here)
 library(redist)
 library(geomander)
 library(sf)
 ```
 
+## Data
+
+We use the 99 Iowa counties here. In Iowa, congressional districts are drawn without splitting counties. Thus, these 99 counties are partitioned into 4 districts with nearly equal population.
+
+The Iowa data can be loaded from `redist` with:
+
+```{r}
+data('iowa')
+```
 
 # Exercises
 
-## 1.
-
-You did this before, but let's make some practice!
+## 1. Constructing an adjacency graph
 
 #### a.
-
-We will use some data from NJ now. This data is at the "VTD" level, which is the voting tabulation district. This is the Census Bureau's idea of voting precincts or voting wards.
-
-We can access a version of this which combines Census data with a retabulation of [VEST Team](https://twitter.com/vest_team) data from the [ALARM Project](https://alarm-redist.github.io/posts/2021-08-10-census-2020/), using `geomander::get_alarm()`. Call this data `nj`
+Using `redist.adjacency()`, construct an adjacency graph for the Iowa data. This will be a _0-indexed Rook's adjacency list_.
 
 ```{r}
-nj <- get_alarm(state = 'NJ')
+adj <- redist.adjacency(iowa)
 ```
 
 
 #### b.
+The first entry should look like:
 
-Next, we need to read in the enacted districts. To read in shapes, we can use `sf::st_read()`.
+```markdown
+[[1]]
+[1]  1 14 38 60 87
+```
 
-Without needing to download the data, we read this directly from a link:
-`https://redistricting.lls.edu/wp-content/uploads/nj_2020_congress_2021-12-22_2031-06-30.json`.
-
-Call this data `nj_cd`.
+Which counties are adjacent to Adair (`iowa$name[1]`) county?
 
 ```{r}
-nj_cd <-st_read('https://redistricting.lls.edu/wp-content/uploads/nj_2020_congress_2021-12-22_2031-06-30.json')
+iowa$name[adj[[1]] + 1]
 ```
+
 
 #### c.
 
-Now, we need to get district numbers from `nj_cd` matched to the VTDs in `nj`. To do this, we can use `geomander::geo_match()`.
+This adjacency list describes an adjacency graph, which is the collection of nodes (counties) and edges (the connections between nodes). Plot it using `redist.plot.adj()`.
 
 ```{r}
-matches <- geo_match(from = nj, to = nj_cd)
+redist.plot.adj(shp = iowa, adj = adj)
 ```
 
-This gives the numerical match from each VTD to each district.
+#### d. 
 
-
-#### d.
-
-Add the district numbers to the `nj` as a new column called `cd_2020`. Beware, the output of `geo_match()` is in the order of the data, not the actual district numbers.
+How many edges are there in this graph? Recall that our adjacency list is just a symmetric list! (Feel free to skip this question and come back to it if you have time.)
 
 ```{r}
-nj$cd_2020 <- nj_cd$District[matches]
+length(unlist(adj)) / 2
 ```
 
-
-## 2.
-
-Let's make our first `redist_map` using `nj`!
+## 2. Queen's Contiguity
 
 #### a.
-
-Create an object `map_nj` using `redist_map()`. Set the `existing_plan` input as `cd_2020`.
-
-```{r}
-map_nj <- redist_map(nj, existing_plan = cd_2020)
-```
+Now, let's build a new adjacency graph that's Queen's contiguous. For this, we can use `st_touches()` from the `sf` package.
 
 ```{r}
-map_nj
+queen <- st_touches(iowa)
 ```
-
-
-#### b.
-
-What new column(s) were added to `map_nj`?
-
-```{r}
-setdiff(names(map_nj), names(nj))
-```
-
-#### c. 
-
-Look at the new column(s) and describe them.
-
-```{r}
-head(map_nj$adj)
-```
-
-It's a zero-indexed adjacency list!
-
-## 3.
-
-Beyond a new column, the object is now a `redist_map`.
-
-```{r}
-map_nj
-```
-
-#### a. 
-
-What are the new `attributes()` in `map_nj`? 
-
-```{r}
-attributes(nj)
-```
-
-
-```{r}
-attributes(map_nj)
-```
-
-
-A nice clean shortcut here is to use `str(attributes(any_R_object))` which will condense the structure into a short overview:
-```{r}
-str(attributes(map_nj))
-```
-
 
 #### b. 
 
-What do you think the new attributes mean?
+The output here is a list, but it is a Sparce Geometry Binary Predicate (sgbp) list! That's fine, because we can treat it as a list anyway. It just prints a bit differently.
 
-The last five things here are the new attributes. There's an `ndists` argument, a listing of population bounds, a column indicating the population, a column indicating the adjacency, and a column indicating the existing plan.
+However, we do have one issue with this:
 
-
-## 4.
-
-(If you have time, look at this! Don't worry if you can't get through this part.)
-
-
-#### a.
-Plot your `redist_map` with `redist.plot.map`. Use the `plan` argument to point to the existing plan. Set `boundaries = FALSE` to help clean up the plot.
-
-```{r}
-redist.plot.map(map_nj, plan = cd_2020, boundaries = FALSE)
+```markdown
+1: 2, 5, 15, 25, 39, 61, 88
 ```
-
-
-#### a. TODO move to a and say this is what they did before
-
-Compare this to plotting just `nj` using the same settings for `redist.plot.map()`
+It's one indexed! Make it 0 indexed by subtracting 1 from each entry in the list.
 
 ```{r}
-redist.plot.map(nj, plan = cd_2020, boundaries = FALSE)
+queen <- lapply(queen, function(x) x - 1L)
 ```
 
 #### c.
-What do you think allows for the cleaner map coloring for the `redist_map`?
+
+Plot our queen's adjacency list using `redist.plot.adj()`.
+
+```{r}
+redist.plot.adj(shp = iowa, adj = queen)
+```
+
+This makes a big difference for a weird state like Iowa, where early planning was aimed to have a county traversable by horse in a day. As a result, you have lots of square small counties which are adjacent to each other only at a single point.
+
+## 3. Comparing Adjacencies
+
+Visually, we saw the difference between the Rook's and Queen's adjacencies above. Let's dive a bit into how they're formally different.
+
+#### a.
+
+Using `geomander::compare_adjacencies()` compare the two.
+
+```{r}
+diffs <- compare_adjacencies(adj1 = adj, adj2 = queen, shp = iowa)
+diffs
+```
+
+#### b.
+
+What are the `relation`s between the differences in the adjacency graphs? This is a formalization of the spatial relationship between the shapes causing the difference.
+
+```{r}
+table(diffs$relation)
+```
+
+
+#### c. 
+
+What are the `class`es between the differences in the adjacency graphs? This is the geographic intersection of the shapes that cause differences.
+
+```{r}
+table(diffs$class)
+```
